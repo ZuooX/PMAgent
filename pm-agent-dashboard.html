@@ -1,0 +1,1192 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PM Agent 工作流仪表盘</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='32' y2='32' gradientUnits='userSpaceOnUse'%3E%3Cstop stop-color='%233b82f6'/%3E%3Cstop offset='1' stop-color='%238b5cf6'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='6' fill='url(%23g)'/%3E%3Ctext x='16' y='22' font-family='system-ui,sans-serif' font-size='16' font-weight='bold' fill='white' text-anchor='middle'%3EP%3C/text%3E%3C/svg%3E">
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+  * { font-family: 'Inter', -apple-system, sans-serif; }
+  body { background: #0f172a; color: #e2e8f0; }
+  .glass { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(12px); border: 1px solid rgba(148, 163, 184, 0.1); }
+  .phase-card { transition: all 0.3s ease; cursor: pointer; }
+  .phase-card:hover { transform: translateY(-4px); box-shadow: 0 12px 40px rgba(0,0,0,0.3); }
+  .phase-card.active { border-color: #3b82f6; box-shadow: 0 0 0 1px #3b82f6, 0 12px 40px rgba(59,130,246,0.15); }
+  .detail-panel { max-height: 0; overflow: hidden; transition: max-height 0.4s ease, opacity 0.3s ease; opacity: 0; }
+  .detail-panel.open { max-height: 2000px; opacity: 1; }
+  .flow-line { position: relative; }
+  .flow-line::after { content: '→'; position: absolute; right: -18px; top: 50%; transform: translateY(-50%); color: #475569; font-size: 18px; font-weight: bold; }
+  .flow-line:last-child::after { display: none; }
+  .tag { display: inline-flex; align-items: center; gap: 4px; padding: 2px 10px; border-radius: 9999px; font-size: 12px; font-weight: 500; }
+  .tag-rule { background: rgba(59,130,246,0.15); color: #93c5fd; }
+  .tag-tpl { background: rgba(168,85,247,0.15); color: #c4b5fd; }
+  .tag-doc { background: rgba(34,197,94,0.15); color: #86efac; }
+  .tag-output { background: rgba(251,146,60,0.15); color: #fdba74; }
+  .status-ready { color: #4ade80; }
+  .status-pending { color: #fbbf24; }
+  .tab-btn { padding: 8px 20px; border-radius: 8px; font-size: 14px; font-weight: 500; transition: all 0.2s; }
+  .tab-btn.active { background: #3b82f6; color: white; }
+  .tab-btn:not(.active) { color: #94a3b8; }
+  .tab-btn:not(.active):hover { background: rgba(148,163,184,0.1); }
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+  .file-tree { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 13px; line-height: 1.8; }
+  .file-tree .folder { color: #93c5fd; cursor: pointer; }
+  .file-tree .folder:hover { color: #60a5fa; }
+  .file-tree .file { color: #cbd5e1; }
+  .file-tree .comment { color: #64748b; }
+  .connector { width: 2px; background: linear-gradient(180deg, #3b82f6, #8b5cf6); margin: 0 auto; }
+  table { border-collapse: collapse; width: 100%; }
+  th { text-align: left; padding: 10px 16px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8; border-bottom: 1px solid rgba(148,163,184,0.15); }
+  td { padding: 10px 16px; font-size: 14px; border-bottom: 1px solid rgba(148,163,184,0.07); }
+  .tooltip { position: relative; }
+  .tooltip-text { visibility: hidden; opacity: 0; position: absolute; bottom: 120%; left: 50%; transform: translateX(-50%); background: #1e293b; border: 1px solid rgba(148,163,184,0.2); padding: 8px 12px; border-radius: 8px; font-size: 12px; white-space: nowrap; transition: all 0.2s; z-index: 10; }
+  .tooltip:hover .tooltip-text { visibility: visible; opacity: 1; }
+</style>
+</head>
+<body class="min-h-screen">
+
+<!-- Header -->
+<header class="sticky top-0 z-50 glass border-b border-slate-700/50">
+  <div class="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-bold text-lg">P</div>
+      <div>
+        <h1 class="text-lg font-semibold text-white">PM Agent 工作流仪表盘</h1>
+        <p class="text-xs text-slate-400">GenerateUI PM Agent 产品平台 · 多项目需求工作流</p>
+      </div>
+    </div>
+    <div class="flex gap-2">
+      <div class="tab-btn active" data-tab="quickstart" onclick="switchTab('quickstart')">快速开始</div>
+      <div class="tab-btn" data-tab="workflow" onclick="switchTab('workflow')">工作流程</div>
+      <div class="tab-btn" data-tab="rules" onclick="switchTab('rules')">规则详情</div>
+      <div class="tab-btn" data-tab="files" onclick="switchTab('files')">文件结构</div>
+      <div class="tab-btn" data-tab="status" onclick="switchTab('status')">项目状态</div>
+    </div>
+  </div>
+</header>
+
+<main class="max-w-7xl mx-auto px-6 py-8">
+
+<!-- ==================== TAB 0: 快速开始 ==================== -->
+<div id="tab-quickstart" class="tab-content active">
+
+  <!-- Hero -->
+  <div class="glass rounded-2xl p-8 mb-6 border border-blue-500/20 bg-gradient-to-br from-blue-900/20 to-purple-900/20">
+    <h2 class="text-xl font-bold text-white mb-2">如何使用 PM Agent 工作流</h2>
+    <p class="text-sm text-slate-300 mb-6">在 Cursor 中开启新对话，直接用自然语言描述你要做的事，AI 会自动路由到对应阶段。<br>总调度规则 <code class="text-blue-300 text-xs">pm-router.mdc</code> 始终生效，无需手动激活。</p>
+    <div class="grid grid-cols-2 gap-6">
+      <div>
+        <h3 class="text-sm font-semibold text-green-400 uppercase tracking-wider mb-3">常用启动指令</h3>
+        <div class="space-y-2">
+          <div class="flex items-start gap-3 bg-slate-800/60 rounded-lg p-3 hover:bg-slate-800/80 transition cursor-pointer" onclick="copyText('新需求 TC 4.16，H5 首页增加 AI 推荐模块')">
+            <code class="text-green-300 text-sm font-mono whitespace-nowrap flex-shrink-0">"新需求 TC 4.16，H5 首页增加 AI 推荐模块"</code>
+            <span class="text-xs text-slate-500 mt-0.5">→ 加载上下文 → 需求对齐</span>
+          </div>
+          <div class="flex items-start gap-3 bg-slate-800/60 rounded-lg p-3 hover:bg-slate-800/80 transition cursor-pointer" onclick="copyText('需求对齐')">
+            <code class="text-green-300 text-sm font-mono whitespace-nowrap flex-shrink-0">"需求对齐"</code>
+            <span class="text-xs text-slate-500 mt-0.5">→ 进入目标/约束/边界对齐</span>
+          </div>
+          <div class="flex items-start gap-3 bg-slate-800/60 rounded-lg p-3 hover:bg-slate-800/80 transition cursor-pointer" onclick="copyText('场景推演')">
+            <code class="text-green-300 text-sm font-mono whitespace-nowrap flex-shrink-0">"场景推演"</code>
+            <span class="text-xs text-slate-500 mt-0.5">→ 用户场景 + 功能列表 + AC</span>
+          </div>
+          <div class="flex items-start gap-3 bg-slate-800/60 rounded-lg p-3 hover:bg-slate-800/80 transition cursor-pointer" onclick="copyText('详细设计')">
+            <code class="text-green-300 text-sm font-mono whitespace-nowrap flex-shrink-0">"详细设计"</code>
+            <span class="text-xs text-slate-500 mt-0.5">→ 页面交互 + 状态机 + 异常</span>
+          </div>
+          <div class="flex items-start gap-3 bg-slate-800/60 rounded-lg p-3 hover:bg-slate-800/80 transition cursor-pointer" onclick="copyText('出原型')">
+            <code class="text-green-300 text-sm font-mono whitespace-nowrap flex-shrink-0">"出原型"</code>
+            <span class="text-xs text-slate-500 mt-0.5">→ 生成可交互 HTML 原型稿</span>
+          </div>
+          <div class="flex items-start gap-3 bg-slate-800/60 rounded-lg p-3 hover:bg-slate-800/80 transition cursor-pointer" onclick="copyText('出需求稿')">
+            <code class="text-green-300 text-sm font-mono whitespace-nowrap flex-shrink-0">"出需求稿"</code>
+            <span class="text-xs text-slate-500 mt-0.5">→ 逐章节组装完整 PRD</span>
+          </div>
+          <div class="flex items-start gap-3 bg-slate-800/60 rounded-lg p-3 hover:bg-slate-800/80 transition cursor-pointer" onclick="copyText('预览需求')">
+            <code class="text-green-300 text-sm font-mono whitespace-nowrap flex-shrink-0">"预览需求"</code>
+            <span class="text-xs text-slate-500 mt-0.5">→ 构建可视化 PRD 预览（含迭代切换）</span>
+          </div>
+          <div class="flex items-start gap-3 bg-slate-800/60 rounded-lg p-3 hover:bg-slate-800/80 transition cursor-pointer" onclick="copyText('需求评审')">
+            <code class="text-green-300 text-sm font-mono whitespace-nowrap flex-shrink-0">"需求评审"</code>
+            <span class="text-xs text-slate-500 mt-0.5">→ 7 维度结构化自检</span>
+          </div>
+          <div class="flex items-start gap-3 bg-slate-800/60 rounded-lg p-3 hover:bg-slate-800/80 transition cursor-pointer" onclick="copyText('修改需求')">
+            <code class="text-green-300 text-sm font-mono whitespace-nowrap flex-shrink-0">"修改需求"</code>
+            <span class="text-xs text-slate-500 mt-0.5">→ 变更同步（改稿 + 自动同步关联产物）</span>
+          </div>
+          <div class="flex items-start gap-3 bg-slate-800/60 rounded-lg p-3 hover:bg-slate-800/80 transition cursor-pointer" onclick="copyText('生成汇报图')">
+            <code class="text-green-300 text-sm font-mono whitespace-nowrap flex-shrink-0">"生成汇报图"</code>
+            <span class="text-xs text-slate-500 mt-0.5">→ 生成迭代信息图，可截图发给市场/运营/领导</span>
+          </div>
+        </div>
+      </div>
+      <div>
+        <h3 class="text-sm font-semibold text-purple-400 uppercase tracking-wider mb-3">自然语言也能触发</h3>
+        <div class="space-y-2">
+          <div class="bg-slate-800/40 rounded-lg p-3">
+            <div class="text-sm text-slate-300">"TC 4.11 的 H5 商详页要加一个功能"</div>
+            <div class="text-xs text-slate-500 mt-1">→ 识别为 1-N 迭代，加载 TC 4.11 上下文</div>
+          </div>
+          <div class="bg-slate-800/40 rounded-lg p-3">
+            <div class="text-sm text-slate-300">"我想做一个购物车功能，先聊聊目标"</div>
+            <div class="text-xs text-slate-500 mt-1">→ 识别为需求对齐阶段</div>
+          </div>
+          <div class="bg-slate-800/40 rounded-lg p-3">
+            <div class="text-sm text-slate-300">"梳理一下用户从下单到收货的完整路径"</div>
+            <div class="text-xs text-slate-500 mt-1">→ 识别为场景推演阶段</div>
+          </div>
+          <div class="bg-slate-800/40 rounded-lg p-3">
+            <div class="text-sm text-slate-300">"商详页收藏按钮的登录拦截状态机"</div>
+            <div class="text-xs text-slate-500 mt-1">→ 识别为详细设计阶段</div>
+          </div>
+          <div class="bg-slate-800/40 rounded-lg p-3">
+            <div class="text-sm text-slate-300">"把这次需求的所有内容整理成完整文档"</div>
+            <div class="text-xs text-slate-500 mt-1">→ 识别为需求稿输出阶段</div>
+          </div>
+          <div class="bg-slate-800/40 rounded-lg p-3">
+            <div class="text-sm text-slate-300">"帮我检查一下 PRD 是否有遗漏"</div>
+            <div class="text-xs text-slate-500 mt-1">→ 识别为需求评审阶段</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Typical Flow Example -->
+  <div class="glass rounded-xl p-6 mb-6">
+    <h3 class="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-4">典型的完整流程示例</h3>
+    <div class="space-y-3">
+      <div class="flex items-start gap-4">
+        <div class="w-8 h-8 rounded-full bg-emerald-500/20 flex items-center justify-center text-emerald-400 text-xs font-bold flex-shrink-0 mt-0.5">1</div>
+        <div>
+          <div class="text-sm font-medium text-white">开新对话，说"新需求 TC 4.16，做一个购物车功能"</div>
+          <div class="text-xs text-slate-500 mt-1">AI 自动加载项目上下文 → 进入需求对齐，逐步收集目标、约束、边界</div>
+        </div>
+      </div>
+      <div class="flex items-start gap-4">
+        <div class="w-8 h-8 rounded-full bg-blue-500/20 flex items-center justify-center text-blue-400 text-xs font-bold flex-shrink-0 mt-0.5">2</div>
+        <div>
+          <div class="text-sm font-medium text-white">对齐完成后，AI 提示"是否进入场景推演？"，你确认</div>
+          <div class="text-xs text-slate-500 mt-1">围绕用户角色推演场景，提取功能列表，为每个功能写验收标准</div>
+        </div>
+      </div>
+      <div class="flex items-start gap-4">
+        <div class="w-8 h-8 rounded-full bg-blue-500/20 flex items-center justify-center text-blue-400 text-xs font-bold flex-shrink-0 mt-0.5">3</div>
+        <div>
+          <div class="text-sm font-medium text-white">功能确认后，AI 提示"是否进入详细设计？"，逐页面展开</div>
+          <div class="text-xs text-slate-500 mt-1">每个页面独立输出交互 + 状态机 + 异常处理，确认一个再做下一个</div>
+        </div>
+      </div>
+      <div class="flex items-start gap-4">
+        <div class="w-8 h-8 rounded-full bg-orange-500/20 flex items-center justify-center text-orange-400 text-xs font-bold flex-shrink-0 mt-0.5">4</div>
+        <div>
+          <div class="text-sm font-medium text-white">详设完成后，说"出原型"，生成可交互 HTML</div>
+          <div class="text-xs text-slate-500 mt-1">基于详细设计自动生成原型稿，输出到 output/TC-4.16/ 目录</div>
+        </div>
+      </div>
+      <div class="flex items-start gap-4">
+        <div class="w-8 h-8 rounded-full bg-blue-500/20 flex items-center justify-center text-blue-400 text-xs font-bold flex-shrink-0 mt-0.5">5</div>
+        <div>
+          <div class="text-sm font-medium text-white">说"出需求稿"，逐章节组装为完整 PRD</div>
+          <div class="text-xs text-slate-500 mt-1">按模板骨架逐章输出，每章确认后再输出下一章，防止 AI 压缩</div>
+        </div>
+      </div>
+      <div class="flex items-start gap-4">
+        <div class="w-8 h-8 rounded-full bg-cyan-500/20 flex items-center justify-center text-cyan-400 text-xs font-bold flex-shrink-0 mt-0.5">5+</div>
+        <div>
+          <div class="text-sm font-medium text-white">说"预览需求"，生成可视化 PRD 预览</div>
+          <div class="text-xs text-slate-500 mt-1">构建独立 HTML 预览页，支持迭代切换、图片灯箱、目录导航，在 Chrome 中打开</div>
+        </div>
+      </div>
+      <div class="flex items-start gap-4">
+        <div class="w-8 h-8 rounded-full bg-purple-500/20 flex items-center justify-center text-purple-400 text-xs font-bold flex-shrink-0 mt-0.5">6</div>
+        <div>
+          <div class="text-sm font-medium text-white">说"需求评审"，AI 做 7 维度自检</div>
+          <div class="text-xs text-slate-500 mt-1">输出评审报告，列出必须修复项和建议优化项</div>
+        </div>
+      </div>
+      <div class="flex items-start gap-4">
+        <div class="w-8 h-8 rounded-full bg-amber-500/20 flex items-center justify-center text-amber-400 text-xs font-bold flex-shrink-0 mt-0.5">7</div>
+        <div>
+          <div class="text-sm font-medium text-white">说"修改需求"，AI 执行变更 + 自动同步关联产物</div>
+          <div class="text-xs text-slate-500 mt-1">修改需求稿后，自动检查并同步 changelog、预览稿、交互稿、截图等 8 项关联产物</div>
+        </div>
+      </div>
+      <div class="flex items-start gap-4">
+        <div class="w-8 h-8 rounded-full bg-pink-500/20 flex items-center justify-center text-pink-400 text-xs font-bold flex-shrink-0 mt-0.5">8</div>
+        <div>
+          <div class="text-sm font-medium text-white">说"生成汇报图"，输出迭代信息图</div>
+          <div class="text-xs text-slate-500 mt-1">从需求稿提炼核心信息，生成可截图发送给市场/运营/领导的可视化 HTML 信息图</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- New Project Guide -->
+  <div class="glass rounded-2xl p-8 mb-6 border border-emerald-500/20 bg-gradient-to-br from-emerald-900/10 to-slate-900/20">
+    <h2 class="text-xl font-bold text-white mb-2">新项目如何开始</h2>
+    <p class="text-sm text-slate-300 mb-6">第一次使用 PM Agent 接入一个新项目时，按以下步骤初始化。AI 会自动识别为 0-1 项目并引导你完成。</p>
+
+    <div class="grid grid-cols-2 gap-6">
+      <!-- Left: Steps -->
+      <div>
+        <h3 class="text-sm font-semibold text-emerald-400 uppercase tracking-wider mb-4">Step-by-Step</h3>
+        <div class="space-y-4">
+          <div class="flex items-start gap-4">
+            <div class="w-7 h-7 rounded-full bg-emerald-500/20 flex items-center justify-center text-emerald-400 text-xs font-bold flex-shrink-0 mt-0.5">1</div>
+            <div>
+              <div class="text-sm font-medium text-white">创建项目目录</div>
+              <div class="text-xs text-slate-400 mt-1">在工作区根目录下创建项目文件夹，放入已有的背景资料</div>
+              <div class="bg-slate-800/60 rounded-lg p-2.5 mt-2 font-mono text-xs text-slate-300">
+                <div>projects/<span class="text-emerald-300">你的项目名</span>/</div>
+                <div class="pl-4">docs/ <span class="text-slate-500">← 历史需求、战略文档、竞品截图等</span></div>
+              </div>
+            </div>
+          </div>
+          <div class="flex items-start gap-4">
+            <div class="w-7 h-7 rounded-full bg-emerald-500/20 flex items-center justify-center text-emerald-400 text-xs font-bold flex-shrink-0 mt-0.5">2</div>
+            <div>
+              <div class="text-sm font-medium text-white">开新对话，告诉 AI 项目名</div>
+              <div class="text-xs text-slate-400 mt-1">AI 检测到 <code class="text-blue-300">project-context.md</code> 不存在，自动进入 0-1 初始化流程</div>
+              <div class="bg-slate-800/60 rounded-lg p-2.5 mt-2 cursor-pointer hover:bg-slate-800/80 transition" onclick="copyText('新项目 my-saas，做一个 SaaS 订阅管理平台')">
+                <code class="text-green-300 text-sm">"新项目 my-saas，做一个 SaaS 订阅管理平台"</code>
+              </div>
+            </div>
+          </div>
+          <div class="flex items-start gap-4">
+            <div class="w-7 h-7 rounded-full bg-emerald-500/20 flex items-center justify-center text-emerald-400 text-xs font-bold flex-shrink-0 mt-0.5">3</div>
+            <div>
+              <div class="text-sm font-medium text-white">AI 引导你完成上下文初始化</div>
+              <div class="text-xs text-slate-400 mt-1">AI 会逐步收集：产品定位、目标用户、技术栈、已有资产、竞品参考等</div>
+              <div class="text-xs text-slate-500 mt-1">完成后自动生成 <code class="text-blue-300">project-context.md</code></div>
+            </div>
+          </div>
+          <div class="flex items-start gap-4">
+            <div class="w-7 h-7 rounded-full bg-emerald-500/20 flex items-center justify-center text-emerald-400 text-xs font-bold flex-shrink-0 mt-0.5">4</div>
+            <div>
+              <div class="text-sm font-medium text-white">开始第一个迭代</div>
+              <div class="text-xs text-slate-400 mt-1">上下文就绪后，直接进入正常工作流（需求对齐 → 场景推演 → ...）</div>
+              <div class="bg-slate-800/60 rounded-lg p-2.5 mt-2 cursor-pointer hover:bg-slate-800/80 transition" onclick="copyText('开始第一个迭代 Sprint-1，做用户注册和订阅购买')">
+                <code class="text-green-300 text-sm">"开始第一个迭代 Sprint-1，做用户注册和订阅购买"</code>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right: What AI generates -->
+      <div>
+        <h3 class="text-sm font-semibold text-blue-400 uppercase tracking-wider mb-4">AI 自动生成的文件结构</h3>
+        <div class="bg-slate-800/60 rounded-lg p-4 font-mono text-xs leading-relaxed mb-4">
+          <div class="text-slate-300">projects/<span class="text-emerald-300">my-saas</span>/</div>
+          <div class="text-slate-300 pl-4"><span class="text-green-400">project-context.md</span> <span class="text-slate-500">← AI 生成：产品定位、技术栈、约束</span></div>
+          <div class="text-slate-300 pl-4"><span class="text-green-400">feature-inventory.md</span> <span class="text-slate-500">← AI 生成：功能清单基线</span></div>
+          <div class="text-slate-300 pl-4">docs/ <span class="text-slate-500">← 你提供的背景资料</span></div>
+          <div class="text-slate-300 pl-4">sprints/</div>
+          <div class="text-slate-300 pl-8"><span class="text-emerald-300">Sprint-1</span>/</div>
+          <div class="text-slate-300 pl-12"><span class="text-green-400">requirement.md</span> <span class="text-slate-500">← 需求稿（逐阶段产出）</span></div>
+          <div class="text-slate-300 pl-12"><span class="text-green-400">changelog.md</span> <span class="text-slate-500">← 变更日志</span></div>
+          <div class="text-slate-300 pl-4">previews/ <span class="text-slate-500">← PRD 预览 HTML</span></div>
+        </div>
+
+        <h3 class="text-sm font-semibold text-orange-400 uppercase tracking-wider mb-3">有背景资料更好</h3>
+        <div class="space-y-2 text-sm text-slate-300">
+          <div class="flex items-start gap-2">
+            <span class="text-emerald-400 flex-shrink-0">+</span>
+            <span>历史需求文档 → 放入 <code class="text-blue-300 text-xs">docs/</code>，AI 自动提取</span>
+          </div>
+          <div class="flex items-start gap-2">
+            <span class="text-emerald-400 flex-shrink-0">+</span>
+            <span>竞品截图 / 分析文档 → 帮助竞品分析阶段</span>
+          </div>
+          <div class="flex items-start gap-2">
+            <span class="text-emerald-400 flex-shrink-0">+</span>
+            <span>技术架构说明 → 帮助 AI 理解技术约束</span>
+          </div>
+          <div class="flex items-start gap-2">
+            <span class="text-slate-500 flex-shrink-0">○</span>
+            <span class="text-slate-400">没有也没关系，AI 会引导你从头梳理</span>
+          </div>
+        </div>
+
+        <div class="bg-blue-900/20 border border-blue-500/20 rounded-lg p-3 mt-4">
+          <div class="text-xs text-blue-400 font-semibold mb-1">后续迭代（1-N 模式）</div>
+          <div class="text-xs text-slate-300">项目初始化只需做一次。后续迭代直接说"新需求 Sprint-2，做 XX 功能"，AI 自动加载已有上下文和功能清单，进入增量模式。</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tips -->
+  <div class="grid grid-cols-3 gap-4">
+    <div class="glass rounded-xl p-5">
+      <h3 class="text-sm font-semibold text-blue-400 mb-3">跳阶段使用</h3>
+      <p class="text-sm text-slate-300">不一定要从头走完整流程。你可以直接说"详细设计"跳到 Phase 3，AI 会尝试基于已有上下文工作。</p>
+    </div>
+    <div class="glass rounded-xl p-5">
+      <h3 class="text-sm font-semibold text-green-400 mb-3">多轮对话</h3>
+      <p class="text-sm text-slate-300">每个阶段可以多轮对话反复打磨。AI 会在同一阶段内保持上下文，直到你确认进入下一阶段。</p>
+    </div>
+    <div class="glass rounded-xl p-5">
+      <h3 class="text-sm font-semibold text-purple-400 mb-3">新对话 vs 续对话</h3>
+      <p class="text-sm text-slate-300">长对话可能导致 AI 遗忘早期细节。建议每 2-3 个阶段开一个新对话，AI 会通过读取文件恢复上下文。</p>
+    </div>
+  </div>
+
+</div>
+
+<!-- ==================== TAB 1: 工作流程 ==================== -->
+<div id="tab-workflow" class="tab-content">
+
+  <!-- Flow Pipeline -->
+  <div class="mb-8">
+    <h2 class="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-4">完整工作流 · 点击卡片查看详情</h2>
+    <div class="grid grid-cols-7 gap-3" id="phase-cards">
+
+      <div class="phase-card glass rounded-xl p-4 text-center" data-phase="0" onclick="togglePhase(0)">
+        <div class="text-2xl mb-2">🏗️</div>
+        <div class="text-xs font-semibold text-blue-400 mb-1">Phase 0</div>
+        <div class="text-sm font-medium text-white">上下文初始化</div>
+        <div class="mt-2"><span class="tag tag-rule">pm-context</span></div>
+      </div>
+
+      <div class="phase-card glass rounded-xl p-4 text-center" data-phase="1" onclick="togglePhase(1)">
+        <div class="text-2xl mb-2">🎯</div>
+        <div class="text-xs font-semibold text-blue-400 mb-1">Phase 1 & 1.5</div>
+        <div class="text-sm font-medium text-white">需求对齐</div>
+        <div class="mt-2"><span class="tag tag-rule">pm-alignment</span></div>
+      </div>
+
+      <div class="phase-card glass rounded-xl p-4 text-center" data-phase="2" onclick="togglePhase(2)">
+        <div class="text-2xl mb-2">🗺️</div>
+        <div class="text-xs font-semibold text-blue-400 mb-1">Phase 2 & 2.5</div>
+        <div class="text-sm font-medium text-white">场景推演</div>
+        <div class="mt-2"><span class="tag tag-rule">pm-scenarios</span></div>
+      </div>
+
+      <div class="phase-card glass rounded-xl p-4 text-center" data-phase="3" onclick="togglePhase(3)">
+        <div class="text-2xl mb-2">📐</div>
+        <div class="text-xs font-semibold text-blue-400 mb-1">Phase 3 & 3.5</div>
+        <div class="text-sm font-medium text-white">详细设计</div>
+        <div class="mt-2"><span class="tag tag-rule">pm-detail-design</span></div>
+      </div>
+
+      <div class="phase-card glass rounded-xl p-4 text-center" data-phase="4" onclick="togglePhase(4)">
+        <div class="text-2xl mb-2">🎨</div>
+        <div class="text-xs font-semibold text-orange-400 mb-1">Phase 4</div>
+        <div class="text-sm font-medium text-white">原型稿输出</div>
+        <div class="mt-2"><span class="tag tag-output">generateui</span></div>
+      </div>
+
+      <div class="phase-card glass rounded-xl p-4 text-center" data-phase="5" onclick="togglePhase(5)">
+        <div class="text-2xl mb-2">📄</div>
+        <div class="text-xs font-semibold text-blue-400 mb-1">Phase 5</div>
+        <div class="text-sm font-medium text-white">需求稿输出</div>
+        <div class="mt-2"><span class="tag tag-rule">pm-prd-output</span></div>
+      </div>
+
+      <div class="phase-card glass rounded-xl p-4 text-center" data-phase="6" onclick="togglePhase(6)">
+        <div class="text-2xl mb-2">✅</div>
+        <div class="text-xs font-semibold text-purple-400 mb-1">Phase 5.5</div>
+        <div class="text-sm font-medium text-white">需求评审</div>
+        <div class="mt-2"><span class="tag tag-tpl">pm-review</span></div>
+      </div>
+
+      <div class="phase-card glass rounded-xl p-4 text-center" data-phase="7" onclick="togglePhase(7)">
+        <div class="text-2xl mb-2">🔄</div>
+        <div class="text-xs font-semibold text-amber-400 mb-1">Phase 6</div>
+        <div class="text-sm font-medium text-white">变更同步</div>
+        <div class="mt-2"><span class="tag tag-rule">pm-review(变更)</span></div>
+      </div>
+
+      <div class="phase-card glass rounded-xl p-4 text-center" data-phase="8" onclick="togglePhase(8)">
+        <div class="text-2xl mb-2">📊</div>
+        <div class="text-xs font-semibold text-pink-400 mb-1">Phase 7</div>
+        <div class="text-sm font-medium text-white">迭代汇报图</div>
+        <div class="mt-2"><span class="tag tag-output">pm-release-infographic</span></div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Phase Detail Panel -->
+  <div id="phase-detail" class="detail-panel glass rounded-2xl mb-8">
+    <div class="p-6" id="phase-detail-content"></div>
+  </div>
+
+  <!-- Key Concepts -->
+  <div class="grid grid-cols-3 gap-4">
+    <div class="glass rounded-xl p-5">
+      <h3 class="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-3">反压缩策略</h3>
+      <ul class="space-y-2 text-sm text-slate-300">
+        <li class="flex gap-2"><span class="text-red-400">✕</span> 禁止一次性合并输出全文</li>
+        <li class="flex gap-2"><span class="text-red-400">✕</span> 禁止"同上""略""等等"</li>
+        <li class="flex gap-2"><span class="text-green-400">✓</span> 逐页面/逐章节独立输出</li>
+        <li class="flex gap-2"><span class="text-green-400">✓</span> 已确认内容锁定，不可修改</li>
+        <li class="flex gap-2"><span class="text-green-400">✓</span> 状态机必须穷举分支</li>
+      </ul>
+    </div>
+    <div class="glass rounded-xl p-5">
+      <h3 class="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-3">0-1 vs 1-N 差异</h3>
+      <ul class="space-y-2 text-sm text-slate-300">
+        <li><span class="text-blue-400 font-medium">0-1 新项目</span>：全量设计，从零创建上下文</li>
+        <li><span class="text-purple-400 font-medium">1-N 迭代</span>：增量推演，读取功能清单</li>
+        <li>自动识别：检测 project-context.md 是否存在</li>
+        <li>增量标记：🆕新增 ✏️修改 🗑️移除 ➡️不变</li>
+      </ul>
+    </div>
+    <div class="glass rounded-xl p-5">
+      <h3 class="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-3">核心输出物</h3>
+      <ul class="space-y-2 text-sm text-slate-300">
+        <li class="flex gap-2"><span class="tag tag-doc">文档</span> project-context.md</li>
+        <li class="flex gap-2"><span class="tag tag-doc">文档</span> feature-inventory.md</li>
+        <li class="flex gap-2"><span class="tag tag-doc">文档</span> requirement.md (完整 PRD)</li>
+        <li class="flex gap-2"><span class="tag tag-output">原型</span> 可交互 HTML 原型稿</li>
+        <li class="flex gap-2"><span class="tag tag-tpl">报告</span> 评审检查报告</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== TAB 2: 规则详情 ==================== -->
+<div id="tab-rules" class="tab-content">
+  <h2 class="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-4">Cursor Rules 详情</h2>
+  <div class="space-y-4" id="rules-list">
+
+    <div class="glass rounded-xl overflow-hidden">
+      <div class="p-5 cursor-pointer flex items-center justify-between" onclick="toggleRule(this)">
+        <div class="flex items-center gap-3">
+          <div class="w-8 h-8 rounded-lg bg-emerald-500/20 flex items-center justify-center text-emerald-400 text-sm font-bold">0</div>
+          <div>
+            <div class="font-medium text-white">pm-context.mdc</div>
+            <div class="text-xs text-slate-400">上下文管理规范 · Phase 0</div>
+          </div>
+        </div>
+        <svg class="w-5 h-5 text-slate-400 transition-transform rule-arrow" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+      </div>
+      <div class="rule-detail hidden border-t border-slate-700/50 p-5 bg-slate-800/30">
+        <div class="grid grid-cols-2 gap-6">
+          <div>
+            <h4 class="text-xs font-semibold text-slate-400 uppercase mb-2">激活条件</h4>
+            <p class="text-sm text-slate-300">用户初始化新项目、开始新需求迭代、或提及上下文/项目背景</p>
+            <h4 class="text-xs font-semibold text-slate-400 uppercase mt-4 mb-2">监听文件</h4>
+            <code class="text-xs text-blue-300">**/project-context.md, **/feature-inventory.md, **/sprints/**/*.md</code>
+          </div>
+          <div>
+            <h4 class="text-xs font-semibold text-slate-400 uppercase mb-2">核心职责</h4>
+            <ul class="text-sm text-slate-300 space-y-1">
+              <li>• 项目/需求两级上下文分层管理</li>
+              <li>• 自动识别 0-1 vs 1-N 项目类型</li>
+              <li>• 对话启动协议（加载上下文 → 确认版本）</li>
+              <li>• 功能清单维护规范</li>
+            </ul>
+            <h4 class="text-xs font-semibold text-slate-400 uppercase mt-4 mb-2">关联模板</h4>
+            <div class="flex gap-2">
+              <span class="tag tag-tpl">project-context.tpl.md</span>
+              <span class="tag tag-tpl">feature-inventory.tpl.md</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="glass rounded-xl overflow-hidden">
+      <div class="p-5 cursor-pointer flex items-center justify-between" onclick="toggleRule(this)">
+        <div class="flex items-center gap-3">
+          <div class="w-8 h-8 rounded-lg bg-blue-500/20 flex items-center justify-center text-blue-400 text-sm font-bold">1</div>
+          <div>
+            <div class="font-medium text-white">pm-alignment.mdc</div>
+            <div class="text-xs text-slate-400">需求对齐与竞品分析 · Phase 1 & 1.5</div>
+          </div>
+        </div>
+        <svg class="w-5 h-5 text-slate-400 transition-transform rule-arrow" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+      </div>
+      <div class="rule-detail hidden border-t border-slate-700/50 p-5 bg-slate-800/30">
+        <div class="grid grid-cols-2 gap-6">
+          <div>
+            <h4 class="text-xs font-semibold text-slate-400 uppercase mb-2">激活条件</h4>
+            <p class="text-sm text-slate-300">用户开始新需求讨论、提及需求背景/目标/约束/竞品</p>
+            <h4 class="text-xs font-semibold text-slate-400 uppercase mt-4 mb-2">核心行为</h4>
+            <p class="text-sm text-slate-300">漏斗式收敛：<span class="text-blue-300">业务目标 → 技术约束 → 依赖资产 → 竞品参考</span>。AI 不主动扩大范围，帮助收敛边界。</p>
+          </div>
+          <div>
+            <h4 class="text-xs font-semibold text-slate-400 uppercase mb-2">输出检查清单</h4>
+            <ul class="text-sm text-slate-300 space-y-1">
+              <li>□ 迭代目标（一句话）</li>
+              <li>□ 业务驱动力 + 成功指标</li>
+              <li>□ 技术红线 + 时间资源约束</li>
+              <li>□ 平台覆盖 + 依赖项</li>
+              <li>□ 需求范围（做/不做）</li>
+            </ul>
+            <h4 class="text-xs font-semibold text-slate-400 uppercase mt-4 mb-2">关联模板</h4>
+            <span class="tag tag-tpl">requirement-background.tpl.md</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="glass rounded-xl overflow-hidden">
+      <div class="p-5 cursor-pointer flex items-center justify-between" onclick="toggleRule(this)">
+        <div class="flex items-center gap-3">
+          <div class="w-8 h-8 rounded-lg bg-blue-500/20 flex items-center justify-center text-blue-400 text-sm font-bold">2</div>
+          <div>
+            <div class="font-medium text-white">pm-scenarios.mdc</div>
+            <div class="text-xs text-slate-400">场景推演与功能列表 · Phase 2 & 2.5</div>
+          </div>
+        </div>
+        <svg class="w-5 h-5 text-slate-400 transition-transform rule-arrow" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+      </div>
+      <div class="rule-detail hidden border-t border-slate-700/50 p-5 bg-slate-800/30">
+        <div class="grid grid-cols-2 gap-6">
+          <div>
+            <h4 class="text-xs font-semibold text-slate-400 uppercase mb-2">核心方法</h4>
+            <ul class="text-sm text-slate-300 space-y-1">
+              <li>1. 梳理用户角色</li>
+              <li>2. 按 User Journey 推演场景</li>
+              <li>3. 从场景提取功能列表</li>
+              <li>4. 每个功能附带 AC（Given-When-Then）</li>
+              <li>5. 定义成功度量指标</li>
+            </ul>
+          </div>
+          <div>
+            <h4 class="text-xs font-semibold text-slate-400 uppercase mb-2">AC 编写示例</h4>
+            <div class="bg-slate-900/50 rounded-lg p-3 text-xs text-slate-300 font-mono">
+              <div class="text-green-400">给定：用户未登录</div>
+              <div class="text-blue-400">当：点击收藏按钮</div>
+              <div class="text-purple-400">则：弹出登录弹窗，登录后自动收藏</div>
+            </div>
+            <h4 class="text-xs font-semibold text-slate-400 uppercase mt-4 mb-2">关联模板</h4>
+            <span class="tag tag-tpl">user-scenarios.tpl.md</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="glass rounded-xl overflow-hidden">
+      <div class="p-5 cursor-pointer flex items-center justify-between" onclick="toggleRule(this)">
+        <div class="flex items-center gap-3">
+          <div class="w-8 h-8 rounded-lg bg-blue-500/20 flex items-center justify-center text-blue-400 text-sm font-bold">3</div>
+          <div>
+            <div class="font-medium text-white">pm-detail-design.mdc</div>
+            <div class="text-xs text-slate-400">详细设计与技术对齐 · Phase 3 & 3.5</div>
+          </div>
+        </div>
+        <svg class="w-5 h-5 text-slate-400 transition-transform rule-arrow" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+      </div>
+      <div class="rule-detail hidden border-t border-slate-700/50 p-5 bg-slate-800/30">
+        <div class="grid grid-cols-2 gap-6">
+          <div>
+            <h4 class="text-xs font-semibold text-slate-400 uppercase mb-2">反压缩协议</h4>
+            <ul class="text-sm text-slate-300 space-y-1">
+              <li>• 一次只处理一个页面/模块</li>
+              <li>• 已确认内容标记为「已锁定」</li>
+              <li>• 禁止省略号/同上/类似处理</li>
+              <li>• 状态机每个分支独立完整描述</li>
+            </ul>
+            <h4 class="text-xs font-semibold text-slate-400 uppercase mt-4 mb-2">状态机必须覆盖</h4>
+            <div class="flex flex-wrap gap-1">
+              <span class="tag tag-rule">正常流程</span>
+              <span class="tag tag-rule">网络超时</span>
+              <span class="tag tag-rule">权限不足</span>
+              <span class="tag tag-rule">校验失败</span>
+              <span class="tag tag-rule">并发冲突</span>
+              <span class="tag tag-rule">跨端转移</span>
+            </div>
+          </div>
+          <div>
+            <h4 class="text-xs font-semibold text-slate-400 uppercase mb-2">页面设计内容</h4>
+            <ul class="text-sm text-slate-300 space-y-1">
+              <li>• 页面概述（路径/入口/角色）</li>
+              <li>• 页面结构（分区/组件）</li>
+              <li>• <strong class="text-blue-300">数据来源与排序</strong>（API/配置/排序规则/加载策略）</li>
+              <li>• 交互设计（触发→行为→反馈）</li>
+              <li>• 状态机（当前态→事件→目标态）</li>
+              <li>• 数据需求（字段/类型/校验）</li>
+              <li>• 异常与边界</li>
+              <li>• 技术对齐清单</li>
+            </ul>
+            <h4 class="text-xs font-semibold text-slate-400 uppercase mt-4 mb-2">关联模板</h4>
+            <span class="tag tag-tpl">detail-design-page.tpl.md</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="glass rounded-xl overflow-hidden">
+      <div class="p-5 cursor-pointer flex items-center justify-between" onclick="toggleRule(this)">
+        <div class="flex items-center gap-3">
+          <div class="w-8 h-8 rounded-lg bg-orange-500/20 flex items-center justify-center text-orange-400 text-sm font-bold">4</div>
+          <div>
+            <div class="font-medium text-white">generateui.mdc</div>
+            <div class="text-xs text-slate-400">原型稿生成引擎 · Phase 4（已有）</div>
+          </div>
+        </div>
+        <svg class="w-5 h-5 text-slate-400 transition-transform rule-arrow" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+      </div>
+      <div class="rule-detail hidden border-t border-slate-700/50 p-5 bg-slate-800/30">
+        <div class="grid grid-cols-2 gap-6">
+          <div>
+            <h4 class="text-xs font-semibold text-slate-400 uppercase mb-2">两种输出模式</h4>
+            <div class="space-y-3">
+              <div class="bg-slate-900/50 rounded-lg p-3">
+                <div class="text-sm font-medium text-orange-300 mb-1">模式 A: spec.json + 模板渲染</div>
+                <div class="text-xs text-slate-400">适用于桌面 SaaS 后台、官网</div>
+              </div>
+              <div class="bg-slate-900/50 rounded-lg p-3">
+                <div class="text-sm font-medium text-orange-300 mb-1">模式 B: 交互原型（直出 HTML）</div>
+                <div class="text-xs text-slate-400">适用于 H5 移动端电商页面</div>
+              </div>
+            </div>
+          </div>
+          <div>
+            <h4 class="text-xs font-semibold text-slate-400 uppercase mb-2">支持的布局</h4>
+            <div class="flex flex-wrap gap-1 mb-4">
+              <span class="tag tag-output">single-column</span>
+              <span class="tag tag-output">two-column</span>
+              <span class="tag tag-output">dashboard</span>
+              <span class="tag tag-output">full-width</span>
+              <span class="tag tag-output">mobile</span>
+            </div>
+            <h4 class="text-xs font-semibold text-slate-400 uppercase mb-2">已有产物</h4>
+            <div class="text-sm text-slate-300">TC-4.11（H5 × 3）、TC-4.14（后台 × 4）</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="glass rounded-xl overflow-hidden">
+      <div class="p-5 cursor-pointer flex items-center justify-between" onclick="toggleRule(this)">
+        <div class="flex items-center gap-3">
+          <div class="w-8 h-8 rounded-lg bg-blue-500/20 flex items-center justify-center text-blue-400 text-sm font-bold">5</div>
+          <div>
+            <div class="font-medium text-white">pm-prd-output.mdc</div>
+            <div class="text-xs text-slate-400">需求稿合并输出 · Phase 5</div>
+          </div>
+        </div>
+        <svg class="w-5 h-5 text-slate-400 transition-transform rule-arrow" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+      </div>
+      <div class="rule-detail hidden border-t border-slate-700/50 p-5 bg-slate-800/30">
+        <div class="grid grid-cols-2 gap-6">
+          <div>
+            <h4 class="text-xs font-semibold text-slate-400 uppercase mb-2">流水线组装策略</h4>
+            <p class="text-sm text-slate-300 mb-3">AI 负责生成局部，物理拼接保证无损。逐章节输出，每章独立确认。</p>
+            <h4 class="text-xs font-semibold text-slate-400 uppercase mb-2">章节输出顺序</h4>
+            <ol class="text-sm text-slate-300 space-y-1 list-decimal list-inside">
+              <li>改动日志</li>
+              <li>功能列表</li>
+              <li>需求背景与目标</li>
+              <li>需求概述</li>
+              <li>详细设计（逐页面拆分）</li>
+              <li>原型稿（HTML + 截图）</li>
+              <li>参考文档</li>
+            </ol>
+          </div>
+          <div>
+            <h4 class="text-xs font-semibold text-slate-400 uppercase mb-2">绝对禁止</h4>
+            <ul class="text-sm text-red-300/80 space-y-1">
+              <li>✕ 对已有内容做总结/压缩/精简</li>
+              <li>✕ 合并输出多个章节</li>
+              <li>✕ 删减已确认的状态机/字段表格</li>
+              <li>✕ 使用省略号或"同上"</li>
+            </ul>
+            <h4 class="text-xs font-semibold text-slate-400 uppercase mt-4 mb-2">关联模板</h4>
+            <span class="tag tag-tpl">prd-full.tpl.md</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="glass rounded-xl overflow-hidden">
+      <div class="p-5 cursor-pointer flex items-center justify-between" onclick="toggleRule(this)">
+        <div class="flex items-center gap-3">
+          <div class="w-8 h-8 rounded-lg bg-purple-500/20 flex items-center justify-center text-purple-400 text-sm font-bold">6</div>
+          <div>
+            <div class="font-medium text-white">pm-review-checklist.mdc</div>
+            <div class="text-xs text-slate-400">需求评审检查 · Phase 5.5 + 变更同步 · Phase 6</div>
+          </div>
+        </div>
+        <svg class="w-5 h-5 text-slate-400 transition-transform rule-arrow" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+      </div>
+      <div class="rule-detail hidden border-t border-slate-700/50 p-5 bg-slate-800/30">
+        <div class="grid grid-cols-2 gap-6">
+          <div>
+            <h4 class="text-xs font-semibold text-slate-400 uppercase mb-2">7 个检查维度</h4>
+            <ul class="text-sm text-slate-300 space-y-1">
+              <li>1. 结构完整性（8 项）</li>
+              <li>2. 功能覆盖度</li>
+              <li>3. 异常路径覆盖</li>
+              <li>4. 状态机完整性（6 项）</li>
+              <li>5. 跨端一致性（4 项）</li>
+              <li>6. 术语与表达规范（5 项）</li>
+              <li>7. 增量检查（1-N 项目，4 项）</li>
+            </ul>
+          </div>
+          <div>
+            <h4 class="text-xs font-semibold text-slate-400 uppercase mb-2">评审结论</h4>
+            <div class="space-y-2">
+              <div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-green-500"></span><span class="text-sm text-slate-300">通过 — 无必须修复项</span></div>
+              <div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-yellow-500"></span><span class="text-sm text-slate-300">有条件通过 — 小范围补充</span></div>
+              <div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-red-500"></span><span class="text-sm text-slate-300">不通过 — 结构性缺失</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="mt-4 pt-4 border-t border-slate-700/30">
+          <h4 class="text-xs font-semibold text-amber-400 uppercase mb-2">Phase 6 · 变更同步清单（8 项）</h4>
+          <div class="grid grid-cols-2 gap-4">
+            <ul class="text-sm text-slate-300 space-y-1">
+              <li>1. <strong class="text-white">requirement.md</strong> — 需求稿（始终）</li>
+              <li>2. <strong class="text-white">changelog.md</strong> — 变更日志（始终）</li>
+              <li>3. <strong class="text-white">review-notes.md</strong> — 评审记录</li>
+              <li>4. <strong class="text-white">PRD 预览</strong> — 重新构建</li>
+            </ul>
+            <ul class="text-sm text-slate-300 space-y-1">
+              <li>5. <strong class="text-white">feature-inventory.md</strong> — 功能清单</li>
+              <li>6. <strong class="text-white">交互稿 + manifest</strong> — HTML 原型</li>
+              <li>7. <strong class="text-white">截图</strong> — 重新截取</li>
+              <li>8. <strong class="text-white">原型对照</strong> — 更新引用</li>
+            </ul>
+          </div>
+          <p class="text-xs text-slate-500 mt-2">AI 修改需求稿后，会强制逐项走完此清单，确保所有关联产物同步更新。</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="glass rounded-xl overflow-hidden">
+      <div class="p-5 cursor-pointer flex items-center justify-between" onclick="toggleRule(this)">
+        <div class="flex items-center gap-3">
+          <div class="w-8 h-8 rounded-lg bg-pink-500/20 flex items-center justify-center text-pink-400 text-sm font-bold">7</div>
+          <div>
+            <div class="font-medium text-white">pm-release-infographic.mdc</div>
+            <div class="text-xs text-slate-400">迭代汇报信息图 · Phase 7</div>
+          </div>
+        </div>
+        <svg class="w-5 h-5 text-slate-400 transition-transform rule-arrow" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+      </div>
+      <div class="rule-detail hidden border-t border-slate-700/50 p-5 bg-slate-800/30">
+        <div class="grid grid-cols-2 gap-6">
+          <div>
+            <h4 class="text-xs font-semibold text-slate-400 uppercase mb-2">信息图内容</h4>
+            <ul class="text-sm text-slate-300 space-y-1">
+              <li>📌 版本号 + 产品名 + 核心目标</li>
+              <li>📊 数据面板（功能数/P0数/新增数）</li>
+              <li>✨ 亮点功能（Top 3-5，业务语言）</li>
+              <li>🎯 量化目标指标</li>
+              <li>🗂️ 影响范围（前台/后台/多端）</li>
+            </ul>
+            <h4 class="text-xs font-semibold text-slate-400 uppercase mt-4 mb-2">触发指令</h4>
+            <div class="flex flex-wrap gap-2">
+              <span class="tag tag-doc">"生成汇报图"</span>
+              <span class="tag tag-doc">"迭代汇报"</span>
+              <span class="tag tag-doc">"出汇报"</span>
+            </div>
+          </div>
+          <div>
+            <h4 class="text-xs font-semibold text-slate-400 uppercase mb-2">输出</h4>
+            <p class="text-sm text-slate-300 mb-3">自包含 HTML 文件，深色主题，可直接截图发送。</p>
+            <div class="bg-slate-900/50 rounded p-3 font-mono text-xs text-slate-400">
+              projects/&lt;项目&gt;/previews/<br>
+              &nbsp;&nbsp;TC-4.16-infographic.html
+            </div>
+            <h4 class="text-xs font-semibold text-slate-400 uppercase mt-4 mb-2">面向受众</h4>
+            <div class="flex flex-wrap gap-2">
+              <span class="tag tag-output">市场</span>
+              <span class="tag tag-output">运营</span>
+              <span class="tag tag-output">领导汇报</span>
+              <span class="tag tag-output">研发对齐</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ==================== TAB 3: 文件结构 ==================== -->
+<div id="tab-files" class="tab-content">
+  <div class="grid grid-cols-2 gap-6">
+
+    <div class="glass rounded-xl p-6">
+      <h3 class="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-4">AI 规则 · .cursor/rules/</h3>
+      <div class="file-tree space-y-1">
+        <div><span class="folder">📁 .cursor/rules/</span></div>
+        <div class="pl-6"><span class="file">📘 pm-context.mdc</span> <span class="comment">← 上下文管理</span></div>
+        <div class="pl-6"><span class="file">📘 pm-alignment.mdc</span> <span class="comment">← 需求对齐</span></div>
+        <div class="pl-6"><span class="file">📘 pm-scenarios.mdc</span> <span class="comment">← 场景推演</span></div>
+        <div class="pl-6"><span class="file">📘 pm-detail-design.mdc</span> <span class="comment">← 详细设计</span></div>
+        <div class="pl-6"><span class="file">📙 generateui.mdc</span> <span class="comment">← 原型生成（已有）</span></div>
+        <div class="pl-6"><span class="file">📘 pm-prd-output.mdc</span> <span class="comment">← 需求稿输出</span></div>
+        <div class="pl-6"><span class="file">📘 pm-review-checklist.mdc</span> <span class="comment">← 需求评审 + 变更同步</span></div>
+        <div class="pl-6"><span class="file">📗 pm-release-infographic.mdc</span> <span class="comment">← 迭代汇报信息图</span></div>
+      </div>
+    </div>
+
+    <div class="glass rounded-xl p-6">
+      <h3 class="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-4">PRD 模板 · templates/prd/</h3>
+      <div class="file-tree space-y-1">
+        <div><span class="folder">📁 templates/prd/</span></div>
+        <div class="pl-6"><span class="file">📋 project-context.tpl.md</span> <span class="comment">← 项目上下文</span></div>
+        <div class="pl-6"><span class="file">📋 feature-inventory.tpl.md</span> <span class="comment">← 功能清单</span></div>
+        <div class="pl-6"><span class="file">📋 requirement-background.tpl.md</span> <span class="comment">← 背景目标</span></div>
+        <div class="pl-6"><span class="file">📋 user-scenarios.tpl.md</span> <span class="comment">← 场景表</span></div>
+        <div class="pl-6"><span class="file">📋 detail-design-page.tpl.md</span> <span class="comment">← 页面详设</span></div>
+        <div class="pl-6"><span class="file">📋 prd-full.tpl.md</span> <span class="comment">← 完整 PRD</span></div>
+        <div class="pl-6"><span class="file">📋 review-checklist.tpl.md</span> <span class="comment">← 评审报告</span></div>
+      </div>
+    </div>
+
+    <div class="glass rounded-xl p-6">
+      <h3 class="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-4">项目工作区 · projects/</h3>
+      <div class="file-tree space-y-1">
+        <div><span class="folder">📁 projects/</span></div>
+        <div class="pl-6"><span class="folder">📁 tuya-choice/</span> <span class="comment">← 示例项目（仅其中一个）</span></div>
+        <div class="pl-12"><span class="file" style="color:#4ade80">✅ project-context.md</span></div>
+        <div class="pl-12"><span class="file" style="color:#4ade80">✅ feature-inventory.md</span></div>
+        <div class="pl-12"><span class="folder">📁 docs/</span> <span class="comment">← 历史需求库</span></div>
+        <div class="pl-16"><span class="file">📄 TC 4.9 ~ TC 4.15 历史需求文档</span></div>
+        <div class="pl-12"><span class="folder">📁 sprints/TC-4.16/</span> <span class="comment">← 当前迭代</span></div>
+        <div class="pl-16"><span class="file">📄 requirement.md</span></div>
+        <div class="pl-16"><span class="file">📄 changelog.md</span></div>
+      </div>
+    </div>
+
+    <div class="glass rounded-xl p-6">
+      <h3 class="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-4">输出产物 · output/</h3>
+      <div class="file-tree space-y-1">
+        <div><span class="folder">📁 output/</span></div>
+        <div class="pl-6"><span class="file">📊 manifest.json</span> <span class="comment">← 全局页面清单</span></div>
+        <div class="pl-6"><span class="file">🌐 index.html</span> <span class="comment">← 预览导航</span></div>
+        <div class="pl-6"><span class="comment">（pm-agent-dashboard.html 已移至项目根目录）</span></div>
+        <div class="pl-6 mt-1"><span class="folder">📁 TC-4.11/</span> <span class="comment">← H5 电商原型</span></div>
+        <div class="pl-12"><span class="file">🌐 h5-home.html</span></div>
+        <div class="pl-12"><span class="file">🌐 h5-pdp.html</span></div>
+        <div class="pl-12"><span class="file">🌐 h5-account.html</span></div>
+        <div class="pl-6 mt-1"><span class="folder">📁 TC-4.14/</span> <span class="comment">← 管理后台原型</span></div>
+        <div class="pl-12"><span class="file">🌐 module-a-seller-center.html</span></div>
+        <div class="pl-12"><span class="file">🌐 module-b-billing.html</span></div>
+        <div class="pl-12"><span class="file">🌐 module-c-platform-admin.html</span></div>
+        <div class="pl-12"><span class="file">🌐 module-g-fee-schedule.html</span></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ==================== TAB 4: 项目状态 ==================== -->
+<div id="tab-status" class="tab-content">
+
+  <div class="glass rounded-xl p-5 mb-6 border border-cyan-500/20">
+    <h3 class="text-sm font-semibold text-cyan-400 uppercase tracking-wider mb-3">项目入口</h3>
+    <p class="text-xs text-slate-400 mb-4">按项目归类的常用入口。用 <code class="text-slate-500">file://</code> 或 Live Server 打开，建议收藏到浏览器标签。</p>
+
+    <div class="mb-4">
+      <div class="flex items-center gap-2 mb-3">
+        <div class="w-6 h-6 rounded bg-emerald-500/20 flex items-center justify-center text-emerald-400 text-xs font-bold">T</div>
+        <span class="text-sm font-semibold text-white">Tuya Choice</span>
+        <span class="text-xs text-slate-500 font-mono">projects/tuya-choice/</span>
+      </div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pl-8">
+        <a href="projects/tuya-choice/previews/index.html" target="_blank" rel="noopener" class="flex items-center gap-3 p-3.5 rounded-lg bg-slate-800/60 hover:bg-slate-800/80 border border-slate-600/50 hover:border-blue-500/40 transition">
+          <div class="w-9 h-9 rounded-lg bg-blue-500 flex items-center justify-center flex-shrink-0">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8m8 4H8m2-8H8"/></svg>
+          </div>
+          <div>
+            <div class="font-medium text-white text-sm">需求预览稿</div>
+            <div class="text-xs text-slate-500 font-mono mt-0.5">previews/index.html</div>
+          </div>
+        </a>
+        <a href="output/index.html" target="_blank" rel="noopener" class="flex items-center gap-3 p-3.5 rounded-lg bg-slate-800/60 hover:bg-slate-800/80 border border-slate-600/50 hover:border-orange-500/40 transition">
+          <div class="w-9 h-9 rounded-lg bg-gradient-to-br from-orange-500 to-orange-600 flex items-center justify-center flex-shrink-0">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><rect x="3" y="3" width="18" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+          </div>
+          <div>
+            <div class="font-medium text-white text-sm">交互稿预览</div>
+            <div class="text-xs text-slate-500 font-mono mt-0.5">output/index.html</div>
+          </div>
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-4 gap-4 mb-6">
+    <div class="glass rounded-xl p-5 text-center">
+      <div class="text-3xl font-bold text-blue-400">7</div>
+      <div class="text-sm text-slate-400 mt-1">AI 规则</div>
+      <div class="text-xs status-ready mt-1">全部就绪</div>
+    </div>
+    <div class="glass rounded-xl p-5 text-center">
+      <div class="text-3xl font-bold text-purple-400">7</div>
+      <div class="text-sm text-slate-400 mt-1">PRD 模板</div>
+      <div class="text-xs status-ready mt-1">全部就绪</div>
+    </div>
+    <div class="glass rounded-xl p-5 text-center">
+      <div class="text-3xl font-bold text-green-400">1</div>
+      <div class="text-sm text-slate-400 mt-1">接入项目</div>
+      <div class="text-xs text-slate-500 mt-1">tuya-choice（可扩展多项目）</div>
+    </div>
+    <div class="glass rounded-xl p-5 text-center">
+      <div class="text-3xl font-bold text-orange-400">1</div>
+      <div class="text-sm text-slate-400 mt-1">活跃迭代</div>
+      <div class="text-xs text-slate-500 mt-1">TC-4.16</div>
+    </div>
+  </div>
+
+  <div class="glass rounded-xl overflow-hidden">
+    <h3 class="text-sm font-semibold text-slate-400 uppercase tracking-wider p-5 pb-0">各组件就绪状态</h3>
+    <div class="p-5">
+      <table>
+        <thead>
+          <tr>
+            <th>组件</th>
+            <th>类型</th>
+            <th>文件</th>
+            <th>状态</th>
+            <th>说明</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td class="font-medium text-white">项目上下文</td><td><span class="tag tag-doc">文档</span></td><td class="text-slate-400 text-xs font-mono">project-context.md</td><td class="status-ready">✅ 已创建</td><td class="text-slate-400">已从战略文档 + 历史需求中提取</td></tr>
+          <tr><td class="font-medium text-white">功能清单</td><td><span class="tag tag-doc">文档</span></td><td class="text-slate-400 text-xs font-mono">projects/tuya-choice/feature-inventory.md</td><td class="status-ready">✅ 已创建</td><td class="text-slate-400">已整理历史需求并纳入项目基线</td></tr>
+          <tr><td class="font-medium text-white">上下文管理规则</td><td><span class="tag tag-rule">规则</span></td><td class="text-slate-400 text-xs font-mono">pm-context.mdc</td><td class="status-ready">✅ 就绪</td><td class="text-slate-400">项目/需求两级分层 + 0-1 vs 1-N</td></tr>
+          <tr><td class="font-medium text-white">需求对齐规则</td><td><span class="tag tag-rule">规则</span></td><td class="text-slate-400 text-xs font-mono">pm-alignment.mdc</td><td class="status-ready">✅ 就绪</td><td class="text-slate-400">漏斗式收敛 + 竞品分析</td></tr>
+          <tr><td class="font-medium text-white">场景推演规则</td><td><span class="tag tag-rule">规则</span></td><td class="text-slate-400 text-xs font-mono">pm-scenarios.mdc</td><td class="status-ready">✅ 就绪</td><td class="text-slate-400">User Journey + AC + 指标</td></tr>
+          <tr><td class="font-medium text-white">详细设计规则</td><td><span class="tag tag-rule">规则</span></td><td class="text-slate-400 text-xs font-mono">pm-detail-design.mdc</td><td class="status-ready">✅ 就绪</td><td class="text-slate-400">状态机穷举 + 反压缩分块</td></tr>
+          <tr><td class="font-medium text-white">原型生成规则</td><td><span class="tag tag-output">规则</span></td><td class="text-slate-400 text-xs font-mono">generateui.mdc</td><td class="status-ready">✅ 就绪</td><td class="text-slate-400">已有，spec 渲染 + 交互原型</td></tr>
+          <tr><td class="font-medium text-white">需求稿输出规则</td><td><span class="tag tag-rule">规则</span></td><td class="text-slate-400 text-xs font-mono">pm-prd-output.mdc</td><td class="status-ready">✅ 就绪</td><td class="text-slate-400">流水线逐章组装 + 无损拼接</td></tr>
+          <tr><td class="font-medium text-white">评审检查 + 变更同步</td><td><span class="tag tag-tpl">规则</span></td><td class="text-slate-400 text-xs font-mono">pm-review-checklist.mdc</td><td class="status-ready">✅ 就绪</td><td class="text-slate-400">7 维度评审 + 8 项变更同步清单</td></tr>
+          <tr><td class="font-medium text-white">迭代汇报信息图</td><td><span class="tag tag-output">规则</span></td><td class="text-slate-400 text-xs font-mono">pm-release-infographic.mdc</td><td class="status-ready">✅ 就绪</td><td class="text-slate-400">从需求稿提炼汇报信息，生成可视化 HTML</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="glass rounded-xl p-5 mt-4">
+    <h3 class="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-3">tuya-choice 历史需求时间线</h3>
+    <div class="flex items-center gap-2 overflow-x-auto pb-2">
+      <div class="flex-shrink-0 bg-slate-800 rounded-lg px-4 py-3 text-center min-w-[120px]">
+        <div class="text-xs text-slate-500">TC 4.9</div>
+        <div class="text-sm text-white mt-1">Agent Banner</div>
+      </div>
+      <div class="text-slate-600">→</div>
+      <div class="flex-shrink-0 bg-slate-800 rounded-lg px-4 py-3 text-center min-w-[120px]">
+        <div class="text-xs text-slate-500">TC 4.10</div>
+        <div class="text-sm text-white mt-1">下单弹窗 + 渠道</div>
+      </div>
+      <div class="text-slate-600">→</div>
+      <div class="flex-shrink-0 bg-blue-900/40 border border-blue-500/30 rounded-lg px-4 py-3 text-center min-w-[120px]">
+        <div class="text-xs text-blue-400">TC 4.11</div>
+        <div class="text-sm text-white mt-1">Web H5</div>
+        <div class="text-xs text-orange-400 mt-1">有原型 ×3</div>
+      </div>
+      <div class="text-slate-600">→</div>
+      <div class="flex-shrink-0 bg-slate-800 rounded-lg px-4 py-3 text-center min-w-[120px]">
+        <div class="text-xs text-slate-500">TC 4.12</div>
+        <div class="text-sm text-white mt-1">App 商品推荐</div>
+      </div>
+      <div class="text-slate-600">→</div>
+      <div class="flex-shrink-0 bg-slate-800 rounded-lg px-4 py-3 text-center min-w-[120px]">
+        <div class="text-xs text-slate-500">TC 4.13</div>
+        <div class="text-sm text-white mt-1">日常 + 店铺管理</div>
+      </div>
+      <div class="text-slate-600">→</div>
+      <div class="flex-shrink-0 bg-blue-900/40 border border-blue-500/30 rounded-lg px-4 py-3 text-center min-w-[120px]">
+        <div class="text-xs text-blue-400">TC 4.14</div>
+        <div class="text-sm text-white mt-1">类目与佣金</div>
+        <div class="text-xs text-orange-400 mt-1">有原型 ×4</div>
+      </div>
+      <div class="text-slate-600">→</div>
+      <div class="flex-shrink-0 bg-slate-800 rounded-lg px-4 py-3 text-center min-w-[120px]">
+        <div class="text-xs text-slate-500">TC 4.15</div>
+        <div class="text-sm text-white mt-1">运费 + 日常</div>
+      </div>
+      <div class="text-slate-600">→</div>
+      <div class="flex-shrink-0 bg-slate-700/50 border border-dashed border-slate-500 rounded-lg px-4 py-3 text-center min-w-[120px]">
+        <div class="text-xs text-green-400">TC 4.16+</div>
+        <div class="text-sm text-slate-400 mt-1">新需求</div>
+        <div class="text-xs text-green-400 mt-1">用 PM Agent</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</main>
+
+<div id="copy-toast" class="fixed bottom-8 left-1/2 -translate-x-1/2 bg-green-600/90 text-white text-sm px-5 py-2.5 rounded-xl shadow-lg opacity-0 translate-y-2 transition-all duration-300 pointer-events-none z-50"></div>
+
+<footer class="text-center text-xs text-slate-600 py-6">
+  PM Agent Dashboard · GenerateUI · 更新于 2026-03-18
+</footer>
+
+<script>
+const phaseData = [
+  {
+    title: 'Phase 0: 上下文初始化',
+    rule: 'pm-context.mdc',
+    desc: '每次对话的起点。自动加载项目上下文，识别 0-1 还是 1-N 项目，确认迭代版本。',
+    inputs: '用户告知项目名和版本号',
+    outputs: 'project-context.md、feature-inventory.md（1-N）',
+    templates: ['project-context.tpl.md', 'feature-inventory.tpl.md'],
+    keyBehavior: '如果 project-context.md 不存在 → 引导初始化；如果存在 + 有功能清单 → 1-N 模式，自动加载已有功能'
+  },
+  {
+    title: 'Phase 1 & 1.5: 需求对齐 + 竞品分析',
+    rule: 'pm-alignment.mdc',
+    desc: '框定需求边界。漏斗式收敛：业务目标 → 技术约束 → 资源限制 → 竞品参考。',
+    inputs: '用户描述需求方向',
+    outputs: 'requirement.md 的「背景」和「目标」章节',
+    templates: ['requirement-background.tpl.md'],
+    keyBehavior: 'AI 不主动扩大范围，帮助用户收敛。每确认一个维度才进入下一个。1-N 项目会输出"现状功能对照表"。'
+  },
+  {
+    title: 'Phase 2 & 2.5: 场景推演 + AC 定义',
+    rule: 'pm-scenarios.mdc',
+    desc: '围绕用户角色推演使用场景，从场景中提取功能列表，每个功能附带验收标准。',
+    inputs: '已对齐的目标和边界',
+    outputs: '场景卡片、功能列表（含 AC）、数据指标',
+    templates: ['user-scenarios.tpl.md'],
+    keyBehavior: '场景必须跑通才能进入详设。AC 用 Given-When-Then 格式，禁止"功能正常工作"式的无效描述。'
+  },
+  {
+    title: 'Phase 3 & 3.5: 详细设计 + 技术对齐',
+    rule: 'pm-detail-design.mdc',
+    desc: '逐页面输出数据来源与排序、交互设计、状态机、异常处理。是反压缩策略最核心的阶段。',
+    inputs: '已确认的功能列表',
+    outputs: '页面级详细设计（数据来源/排序 + 交互 + 状态机 + 异常）',
+    templates: ['detail-design-page.tpl.md'],
+    keyBehavior: '先明确数据来源和排序逻辑，再设计交互。一次只处理一个页面，确认后锁定。状态机穷举所有分支。'
+  },
+  {
+    title: 'Phase 4: 原型稿输出',
+    rule: 'generateui.mdc（已有）',
+    desc: '基于详细设计生成可交互原型。H5 直出 HTML，SaaS 后台走 spec.json 模板渲染。',
+    inputs: '详细设计文稿 + [!ui-context] callout',
+    outputs: 'output/TC-X.XX/ 下的 HTML 原型文件',
+    templates: ['（使用 GenerateUI 组件模板）'],
+    keyBehavior: '自动识别产物类型（H5 / SaaS / 官网），选择对应布局和组件。支持截图驱动改造模式。'
+  },
+  {
+    title: 'Phase 5: 需求稿合并输出',
+    rule: 'pm-prd-output.mdc',
+    desc: '将各阶段产物组装为完整 PRD。采用流水线策略，逐章节输出，禁止合并压缩。',
+    inputs: '各阶段已确认的产物',
+    outputs: '完整的 requirement.md',
+    templates: ['prd-full.tpl.md'],
+    keyBehavior: '按固定章节顺序逐段输出，每段独立确认。已锁定内容禁止修改。详细设计按页面拆分输出。'
+  },
+  {
+    title: 'Phase 5+: 需求预览',
+    rule: 'build-prd-preview.mjs',
+    desc: '将 requirement.md 构建为独立可视化 HTML 预览页。支持迭代切换、图片灯箱（缩放/拖拽/导航）、目录导航。',
+    inputs: 'requirement.md + 截图文件',
+    outputs: 'projects/<项目>/previews/prd-preview-<版本>.html',
+    templates: ['（内置模板）'],
+    keyBehavior: '图片 base64 内嵌保证离线可用。自动扫描项目下所有迭代，顶部下拉菜单切换。'
+  },
+  {
+    title: 'Phase 5.5: 需求评审检查',
+    rule: 'pm-review-checklist.mdc',
+    desc: '对完成的 PRD 进行 7 维度结构化自检，输出评审报告。',
+    inputs: '完整的 requirement.md',
+    outputs: '评审报告（通过/有条件通过/不通过 + 问题清单）',
+    templates: ['review-checklist.tpl.md'],
+    keyBehavior: '逐项比对检查清单，每个不通过项给出具体修复建议。区分"必须修复"和"建议优化"。'
+  },
+  {
+    title: 'Phase 6: 需求变更同步',
+    rule: 'pm-review-checklist.mdc（变更同步章节）',
+    desc: '自审或评审后的需求改动，自动同步所有关联产物，确保一致性。',
+    inputs: '变更内容（用户描述或评审意见）',
+    outputs: '更新后的 requirement.md + 变更同步报告（8 项产物逐一确认）',
+    templates: [],
+    keyBehavior: '修改需求稿后，强制逐项走完 8 项同步清单：changelog、评审记录、PRD 预览、功能清单、交互稿+manifest、截图、原型对照。宁可多同步也不遗漏。'
+  },
+  {
+    title: 'Phase 7: 迭代汇报信息图',
+    rule: 'pm-release-infographic.mdc',
+    desc: '从已完成的需求稿中提炼核心信息，生成适合向市场/运营/领导汇报的可视化 HTML 信息图。',
+    inputs: 'requirement.md（已定稿）',
+    outputs: 'projects/<项目名>/previews/<版本号>-infographic.html（自包含，可直接截图）',
+    templates: [],
+    keyBehavior: '自动提炼：版本目标、功能数量、P0亮点（3-5条）、量化指标、影响范围。用业务语言描述，避免技术术语，视觉突出数字与亮点。'
+  }
+];
+
+let activePhase = -1;
+
+function togglePhase(idx) {
+  const panel = document.getElementById('phase-detail');
+  const content = document.getElementById('phase-detail-content');
+  const cards = document.querySelectorAll('.phase-card');
+
+  if (activePhase === idx) {
+    panel.classList.remove('open');
+    cards[idx].classList.remove('active');
+    activePhase = -1;
+    return;
+  }
+
+  cards.forEach(c => c.classList.remove('active'));
+  cards[idx].classList.add('active');
+  activePhase = idx;
+
+  const d = phaseData[idx];
+  content.innerHTML = `
+    <div class="flex items-center justify-between mb-4">
+      <h3 class="text-lg font-semibold text-white">${d.title}</h3>
+      <span class="tag tag-rule">${d.rule}</span>
+    </div>
+    <p class="text-sm text-slate-300 mb-4">${d.desc}</p>
+    <div class="grid grid-cols-3 gap-4 mb-4">
+      <div class="bg-slate-800/50 rounded-lg p-3">
+        <div class="text-xs text-slate-500 uppercase font-semibold mb-1">输入</div>
+        <div class="text-sm text-slate-300">${d.inputs}</div>
+      </div>
+      <div class="bg-slate-800/50 rounded-lg p-3">
+        <div class="text-xs text-slate-500 uppercase font-semibold mb-1">输出</div>
+        <div class="text-sm text-slate-300">${d.outputs}</div>
+      </div>
+      <div class="bg-slate-800/50 rounded-lg p-3">
+        <div class="text-xs text-slate-500 uppercase font-semibold mb-1">关联模板</div>
+        <div class="flex flex-wrap gap-1">${d.templates.map(t => `<span class="tag tag-tpl">${t}</span>`).join('')}</div>
+      </div>
+    </div>
+    <div class="bg-blue-900/20 border border-blue-500/20 rounded-lg p-3">
+      <div class="text-xs text-blue-400 uppercase font-semibold mb-1">AI 关键行为</div>
+      <div class="text-sm text-slate-300">${d.keyBehavior}</div>
+    </div>
+  `;
+  panel.classList.add('open');
+}
+
+function switchTab(tabId) {
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + tabId).classList.add('active');
+  document.querySelector(`[data-tab="${tabId}"]`).classList.add('active');
+}
+
+function copyText(text) {
+  navigator.clipboard.writeText(text).then(() => {
+    const toast = document.getElementById('copy-toast');
+    toast.textContent = '已复制: ' + text;
+    toast.classList.remove('opacity-0','translate-y-2');
+    toast.classList.add('opacity-100','translate-y-0');
+    setTimeout(() => {
+      toast.classList.remove('opacity-100','translate-y-0');
+      toast.classList.add('opacity-0','translate-y-2');
+    }, 1800);
+  });
+}
+
+function toggleRule(el) {
+  const detail = el.nextElementSibling;
+  const arrow = el.querySelector('.rule-arrow');
+  detail.classList.toggle('hidden');
+  arrow.style.transform = detail.classList.contains('hidden') ? '' : 'rotate(180deg)';
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,556 @@
+---
+description: 从 Obsidian Markdown 需求文档生成/迭代 UI 交互稿。当用户要求从 markdown 需求生成设计稿、修改已有页面、UI 设计、页面预览时激活此规则。
+globs:
+  - "**/*.md"
+  - "output/**/*.html"
+  - "output/manifest.json"
+alwaysApply: false
+---
+
+# GenerateUI - UI 交互稿生成与迭代引擎
+
+你是 GenerateUI 系统的 AI 设计引擎。**所有页面统一输出为可交互 HTML 文件**，不使用 spec.json 模板渲染模式。支持两种工作模式：
+- **全新生成**：从 Markdown 需求文档生成 UI 交互稿
+- **增量迭代**：基于已有 UI 交互稿，叠加新功能点
+
+## 页面清单 (Manifest)
+
+所有已生成的页面注册在 `output/manifest.json` 中。**每次对话开始时，如果涉及已有页面的修改，必须先读取此文件了解全貌。**
+
+清单结构：
+```json
+{
+  "pages": [{
+    "id": "唯一标识",
+    "file": "TC-4.11/h5-pdp.html",
+    "title": "页面标题",
+    "product": "H5 Web 端 / 电商管理后台 / 官网子页面",
+    "type": "interactive-prototype",
+    "features": ["功能列表"],
+    "tcVersion": "4.11",
+    "requirementFile": "需求 MD 路径"
+  }]
+}
+```
+
+### 维护规则
+
+- **新增页面**：生成完成后，向 manifest.json 追加新记录
+- **修改页面**：更新对应记录的 features 列表和 lastUpdated
+- **删除页面**：从 manifest.json 移除对应记录
+
+## 工作流程
+
+### 流程 A：全新生成
+
+1. 读取用户指定的 `.md` 需求文档
+2. 识别产物类型（ui-context）
+3. **直接生成自包含 HTML 交互稿**（包含 Tailwind CSS + 内联 JS 交互）
+4. **更新 `output/manifest.json`**
+5. **重新生成 `output/index.html`**：执行 `node build-output-index.mjs`
+
+### 流程 B：增量迭代（用户引用已有页面）
+
+1. **读取 `output/manifest.json`** 了解该页面当前功能清单
+2. **读取对应 HTML 文件** 理解当前结构
+3. 读取新的需求文档或用户描述的变更点
+4. **用 StrReplace 对已有文件做增量修改**，而非整页重写
+5. **更新 manifest.json** 中的 features 列表
+6. **重新生成 `output/index.html`**：执行 `node build-output-index.mjs`
+
+### 用户引用方式
+
+用户可以通过以下方式指定要修改的页面：
+- `@output/TC-4.11/h5-pdp.html 新增 XX 功能` — 直接引用文件
+- `TC 4.11 商详页新增 XX` — 通过 manifest 中的 title/tcVersion 匹配
+- `h5-pdp 加一个 XX` — 通过 manifest 中的 file 名匹配
+
+## 可用组件
+
+只能使用以下组件（对应 `templates/components/` 下的 Handlebars 模板）：
+
+### navbar — 顶部导航栏
+```json
+{
+  "component": "navbar",
+  "props": {
+    "title": "系统名称",
+    "items": [{"label": "首页", "href": "#", "active": true}],
+    "showSearch": true
+  }
+}
+```
+
+### sidebar — 侧边栏菜单
+```json
+{
+  "component": "sidebar",
+  "props": {
+    "title": "菜单标题",
+    "items": [{"label": "菜单项", "icon": "📊", "active": true, "badge": "99"}]
+  }
+}
+```
+
+### card — 卡片
+```json
+{
+  "component": "card",
+  "props": {
+    "title": "卡片标题",
+    "description": "描述文本",
+    "image": true,
+    "footer": "底部信息",
+    "actions": [{"label": "操作", "type": "primary"}]
+  }
+}
+```
+
+### table — 数据表格
+```json
+{
+  "component": "table",
+  "props": {
+    "title": "表格标题",
+    "columns": [{"key": "name", "label": "名称"}],
+    "rows": [{"name": "示例"}],
+    "actions": [{"label": "编辑", "type": "primary"}, {"label": "删除", "type": "danger"}],
+    "showPagination": true
+  }
+}
+```
+
+### form — 表单
+```json
+{
+  "component": "form",
+  "props": {
+    "title": "表单标题",
+    "fields": [
+      {"name": "username", "label": "用户名", "type": "text", "placeholder": "请输入", "required": true},
+      {"name": "role", "label": "角色", "type": "select", "options": [{"label": "管理员", "value": "admin"}]}
+    ],
+    "submitText": "提交",
+    "cancelText": "取消"
+  }
+}
+```
+
+### modal — 弹窗
+```json
+{
+  "component": "modal",
+  "props": {
+    "title": "弹窗标题",
+    "content": "内容文本",
+    "size": "md",
+    "showClose": true,
+    "actions": [{"label": "确认", "type": "primary"}, {"label": "取消", "type": "secondary"}]
+  }
+}
+```
+
+### stats — 数据统计
+```json
+{
+  "component": "stats",
+  "props": {
+    "items": [{"label": "总数", "value": "1,286", "change": "+12.5%", "trend": "up"}]
+  }
+}
+```
+
+### hero — 页面主视觉
+```json
+{
+  "component": "hero",
+  "props": {
+    "title": "主标题",
+    "subtitle": "副标题",
+    "description": "描述",
+    "actions": [{"label": "开始", "type": "primary"}],
+    "image": true
+  }
+}
+```
+
+### breadcrumb — 面包屑
+```json
+{
+  "component": "breadcrumb",
+  "props": {
+    "items": [{"label": "首页", "href": "#"}, {"label": "当前页"}]
+  }
+}
+```
+
+### tabs — 标签页
+```json
+{
+  "component": "tabs",
+  "props": {
+    "items": [{"label": "标签1", "active": true, "content": "内容"}, {"label": "标签2"}]
+  }
+}
+```
+
+### alert — 提示信息
+```json
+{
+  "component": "alert",
+  "props": {
+    "type": "info",
+    "title": "提示标题",
+    "message": "提示内容",
+    "dismissible": true
+  }
+}
+```
+
+### empty-state — 空状态
+```json
+{
+  "component": "empty-state",
+  "props": {
+    "title": "暂无数据",
+    "description": "描述文本",
+    "action": {"label": "添加", "type": "primary"}
+  }
+}
+```
+
+### list — 列表
+```json
+{
+  "component": "list",
+  "props": {
+    "title": "列表标题",
+    "items": [{"title": "项目", "description": "描述", "avatar": true, "meta": "3小时前", "actions": [{"label": "查看"}]}]
+  }
+}
+```
+
+### mobile-header — 移动端顶栏（仅用于 mobile 布局）
+```json
+{
+  "component": "mobile-header",
+  "props": {
+    "country": "United States",
+    "countryFlag": "🇺🇸",
+    "showSearch": true,
+    "searchPlaceholder": "Search for products and brands"
+  }
+}
+```
+
+### product-grid — 双列商品卡片网格（仅用于 mobile 布局）
+```json
+{
+  "component": "product-grid",
+  "props": {
+    "items": [
+      {"title": "商品名", "price": "$12.99", "originalPrice": "$19.99", "tag": "HOT", "sold": "2.4k"}
+    ]
+  }
+}
+```
+
+### bottom-sheet — 底部半屏弹窗（仅用于 mobile 布局）
+```json
+{
+  "component": "bottom-sheet",
+  "props": {
+    "title": "弹窗标题",
+    "subtitle": "副标题",
+    "content": "内容文本",
+    "showClose": true,
+    "checkbox": "合规勾选文本（HTML）",
+    "actions": [
+      {"label": "主操作", "type": "primary", "icon": "📱"},
+      {"label": "Google 登录", "type": "google", "icon": "G"},
+      {"label": "Apple 登录", "type": "apple", "icon": ""}
+    ]
+  }
+}
+```
+
+### floating-banner — 悬浮横幅（仅用于 mobile 布局）
+```json
+{
+  "component": "floating-banner",
+  "props": {
+    "icon": "📱",
+    "title": "Open in Tuya App",
+    "subtitle": "Exclusive AI features",
+    "action": "Open"
+  }
+}
+```
+
+### sticky-bar — 底部固定操作栏（仅用于 mobile 布局）
+```json
+{
+  "component": "sticky-bar",
+  "props": {
+    "leftActions": [{"icon": "🏠", "label": "Home"}, {"icon": "♡", "label": "Wishlist"}],
+    "actions": [
+      {"label": "Add to Cart", "type": "secondary"},
+      {"label": "Buy Now", "type": "primary"}
+    ]
+  }
+}
+```
+
+### coupon-card — 优惠券卡片（仅用于 mobile 布局）
+```json
+{
+  "component": "coupon-card",
+  "props": {
+    "title": "Available Coupons",
+    "items": [
+      {"discount": "10% OFF", "condition": "Min. $39", "title": "券名", "description": "有效期", "claimed": false}
+    ]
+  }
+}
+```
+
+## 布局类型
+
+- **single-column** — 单列居中，适合表单页、简单页面
+- **two-column** — 左侧边栏 + 右侧内容，适合管理后台
+- **dashboard** — 仪表盘网格布局，适合数据概览
+- **full-width** — 全宽布局，适合落地页
+- **mobile** — 移动端手机框（430px 居中），适合 H5 电商页面、小程序 Web 版
+
+## UI Spec JSON Schema
+
+```json
+{
+  "page": {
+    "title": "页面标题",
+    "description": "页面描述（可选）",
+    "layout": "two-column",
+    "theme": "classic 或 modern（可选，有截图时用 classic，无截图时用 modern 或省略）",
+    "globals": [
+      // 全局组件（如 navbar），渲染在布局外部
+    ],
+    "sections": [
+      {
+        "title": "区域标题（可选）",
+        "components": [
+          // 组件列表
+        ]
+      }
+    ]
+  }
+}
+```
+
+## 识别产物类型 (ui-context)
+
+**在生成任何 UI 之前，必须先确定目标产物类型。** 产物类型决定了输出模式、布局和组件选择。
+
+### ui-context 写在哪里
+
+写在**需求 MD 文件**里，放在「五、详细设计」章节之前，用 callout 格式：
+
+```markdown
+> [!ui-context]
+> - **产物类型**: 移动端 H5 电商页面 / 桌面 SaaS 后台 / 官网子页面
+> - **目标用户**: C 端消费者 / B 端商家 / 平台运营
+> - **线上参考**: https://mall.iot2us.com（线上环境 URL）
+> - **设计风格**: 电商消费级 / 管理后台 / 品牌官网
+```
+
+### 识别方式
+
+1. 检查 MD 文件中是否包含 `> [!ui-context]` callout，从中提取产物类型
+2. 如果没有 callout，根据需求内容和用户提供的截图推断
+3. 如果仍无法确定，主动询问用户
+4. 如果提供了「线上参考」URL，**必须先 fetch 该 URL 了解现有页面结构**，在此基础上叠加新功能
+
+### 产物类型与布局参考
+
+| 产物类型 | 布局 | 参考尺寸 |
+|---------|------|---------|
+| 桌面 SaaS 后台 | two-column（侧边栏 + 内容区） | 全宽 |
+| 官网子页面 | full-width（单列） | 全宽 |
+| 移动端 H5 电商 | 手机框居中 | 430×932px |
+| 单页表单 | single-column（居中卡片） | 全宽 |
+
+## 输出模式
+
+### 统一模式：Interactive Prototype（直出 HTML）
+
+**所有页面类型统一使用此模式**，直接生成自包含 HTML 文件，包含 Tailwind CSS + 内联 JS 交互，不依赖任何外部模板引擎。
+
+#### 核心原则
+
+1. **真实 UI，不写注释文案** — 输出的 HTML 必须看起来像真实产品页面，不能有任何"交互规则说明"、"状态校验逻辑"等文档性文字；**禁止在可见 UI 区域内放解释性标注**（如 "Auto-aggregated from product pool"、"仅供参考"、"数据来源：后端接口"），此类说明只写在需求稿，不出现在原型页面
+2. **基于线上页面叠加** — 如果有线上参考 URL，先分析其结构和设计语言，再叠加新功能
+3. **可交互** — 按钮可点击、Bottom Sheet 可弹出/关闭、状态可切换、有 Toast 反馈
+4. **手机框呈现** — 430×932px 手机外框，居中显示，带状态栏
+
+#### 交互设计规范
+
+- **Bottom Sheet**：从底部滑出，带半透明遮罩，点击遮罩关闭
+- **Toast**：居中浮现，1.5-2s 后消失
+- **登录拦截**：未登录点击受保护操作 → 弹出 Login Bottom Sheet → 登录成功后断点续传
+- **Demo Toggle**：页面右上角提供「Guest / Logged in」切换开关，便于演示不同状态
+- **心跳动画**：收藏按钮点击后有 scale 弹跳动画
+- **页面间导航**：多页面之间通过 `<a href="xxx.html">` 互相跳转
+
+#### 文件结构
+
+```
+output/tuya-choice/TC-4.11/
+├── h5-pdp.html         ← 商详页（核心交互页）
+├── h5-account.html     ← 个人中心（登录拦截 + 登录后视图）
+└── ...其他页面
+```
+
+## 生成规则
+
+### 通用规则
+
+1. 仔细阅读需求文档的每一个功能点
+2. 为每个功能选择最合适的组件
+3. 合理安排布局和区域划分
+4. **用需求中的真实内容填充 props**，不要使用占位符
+
+### 桌面后台规则
+
+5. 顶部导航用固定 `<header>` + flex 布局，左侧 logo + 菜单，右侧用户头像/搜索
+6. 侧边栏用 `<aside>` 固定宽度（如 240px），内嵌树形菜单
+7. 统计数据用卡片网格（grid），包含数值、趋势标记、图标
+8. 列表/表格数据用 `<table>` 或卡片列表，支持排序/筛选交互
+9. 表单用两列或单列布局，字段含 label + input/select/textarea
+
+### 移动端 H5 规则
+
+10. 使用 `"layout": "mobile"` 布局
+11. 顶栏用 mobile-header（不要用桌面 navbar）
+12. 商品列表用 product-grid（双列卡片）
+13. 登录/确认弹窗用 bottom-sheet（不要用桌面 modal）
+14. "Open in App" 引导用 floating-banner
+15. 页面底部购买栏用 sticky-bar
+16. 优惠券展示用 coupon-card
+17. 分类标签用 tabs
+18. globals 一般留空（mobile-header 放在 sections 的第一个 section 中）
+
+## 截图驱动改造模式
+
+**核心原则：截图 = 改造前状态，需求 = 要做的变更，设计稿 = 改造后效果。**
+
+当 MD 文件中包含截图（`![](...)` 图片引用）时，需要进入"截图改造模式"：
+
+### 第一步：识别截图
+
+- 扫描 MD 中的所有 `![](...)` 图片引用
+- 打开并分析每张截图的内容（利用多模态视觉能力）
+- 截图代表的是**现有系统的当前状态**
+
+### 第二步：理解现状（改造前）
+
+从截图中提取以下信息：
+
+- **页面布局**：顶部导航、侧边栏、内容区域的分布方式
+- **导航菜单**：菜单项名称、层级结构、当前激活项
+- **表单字段**：输入框、下拉选择、标签、按钮的位置和内容
+- **数据展示**：表格列、卡片、列表的结构
+- **视觉风格**：配色方案（通常为白底浅灰边框蓝色主色）、间距紧凑程度、字号大小
+
+### 第三步：定位变更点
+
+对照 MD 需求文档，逐一确认：
+
+- **哪些区域需要新增**（截图中没有，需求中描述了新功能）
+- **哪些区域需要替换**（截图中有旧版，需求中描述了新版交互）
+- **哪些区域需要移除**（截图中有，需求中明确要删除）
+- **哪些区域保持不变**（截图中有，需求中未提及变更）
+
+### 第四步：生成改造后设计稿
+
+- **保持不变的部分**：保留截图中的结构和数据
+  - 例：侧边栏菜单项保持与截图一致的名称和层级
+  - 例：顶部导航栏保持与截图一致的 logo、菜单项
+- **变更部分**：用合适的组件实现需求中描述的新交互
+  - 例：截图中的简单下拉 → 需求要求替换为级联选择器 → 使用 `category-picker` 组件
+  - 例：截图中无 AI 推荐 → 需求要求新增 → 在对应区域添加推荐标签
+- **保持视觉风格**：有截图时，HTML 的配色/间距/字号与截图保持一致（classic 风格）
+
+### 第五步：示例
+
+假设截图显示一个商品编辑页，左侧为富文本编辑器，右侧为"产品归属"面板（包含"商品类目"普通下拉）。需求要求将"商品类目"替换为"AI 推荐 + 米勒列级联弹窗"。
+
+生成的交互稿应该：
+- 保持左侧编辑区布局不变
+- 保持右侧面板中"集合"、"供应商/品牌"等字段不变
+- 将"商品类目"区域替换为级联弹窗交互
+- 视觉风格与截图保持一致（classic 风格：白底、浅灰边框、蓝色主色）
+
+### 无截图时
+
+如果 MD 中没有任何截图引用，则使用默认的 modern 主题（`"theme": "modern"` 或不设置），进行全新设计。
+
+## 需求文件路径
+
+项目数据统一存放在 `projects/` 目录下，按项目名隔离：
+- **需求文档：** `projects/<项目名>/sprints/<版本号>/requirement.md`（PM Agent 产出）
+- **历史文档：** `projects/<项目名>/docs/` 下的 `.md` 文件（迁移自 Obsidian 等外部来源）
+- **截图附件：** `projects/<项目名>/attachments/` 下的图片文件
+- **项目上下文：** `projects/<项目名>/project-context.md`
+- 用户可通过 `@projects/tuya-choice/sprints/TC-4.16/requirement.md` 引用需求文件
+- **输出目录：** 按项目名 + TC 版本号归类，如 `output/tuya-choice/TC-4.16/`
+
+## 输出步骤
+
+### 全新生成
+
+当用户要求从 MD 生成新设计稿时，执行：
+
+1. 读取 MD 文件内容（优先在 `projects/<项目名>/sprints/<版本号>/` 或 `projects/<项目名>/docs/` 中查找）
+2. **识别产物类型**：检查 `[!ui-context]` callout 或根据需求推断
+3. **如果有线上参考 URL**：fetch 该 URL 了解现有页面结构
+4. **检查是否包含截图**：
+   - 有截图 → 进入截图改造模式（见上方），分析截图并对比需求
+   - 截图路径可能为 `../attachments/xxx.png`，实际对应 `projects/<项目名>/attachments/xxx.png`
+   - 无截图 → 使用 modern 主题全新设计
+5. **生成自包含 HTML 交互稿**：包含 Tailwind CSS CDN + 内联 JS 交互，根据产物类型选择合适布局（桌面双栏 / 移动手机框 / 全宽单列）
+6. 将输出写入 `output/<项目名>/<TC版本号>/` 目录
+7. **更新 `output/manifest.json`**：追加新页面记录（type 固定为 `interactive-prototype`）
+8. **重新生成 `output/index.html`**：执行 `node build-output-index.mjs`
+
+### 增量迭代
+
+当用户要求修改已有页面时，执行：
+
+1. **读取 `output/manifest.json`** — 找到对应页面的当前功能列表
+2. **读取对应 HTML 文件** — 理解当前代码结构和已实现的功能
+3. 分析用户描述的变更点（新增功能、修改交互、调整布局等）
+4. **使用 StrReplace 做增量编辑** — 精准修改相关代码段，保持未变更部分不动
+5. **更新 `output/manifest.json`** — 在 features 数组中追加/修改对应条目
+6. **重新生成 `output/index.html`**：执行 `node build-output-index.mjs`
+
+### 多产品线项目结构
+
+本项目覆盖多个产品线，通过 TC 版本号和 manifest 统一管理：
+
+```
+output/
+├── manifest.json              ← 全局页面清单
+├── tuya-choice/               ← 项目：Tuya Choice
+│   ├── TC-4.11/               ← Web H5 电商
+│   │   ├── h5-home.html
+│   │   ├── h5-pdp.html
+│   │   └── h5-account.html
+│   ├── TC-4.14/               ← 管理后台 + 官网
+│   │   ├── module-a-seller-center.html
+│   │   ├── module-b-billing.html
+│   │   ├── module-c-platform-admin.html
+│   │   └── module-g-fee-schedule.html
+│   └── TC-4.16/               ← 专题页优化
+│       ├── h5-topic-tuya-choice.html
+│       └── topic-admin.html
+└── <other-project>/           ← 其他项目...
+```

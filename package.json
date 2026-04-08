@@ -1,0 +1,25 @@
+{
+  "name": "pm-agent",
+  "version": "1.0.0",
+  "description": "AI-powered Product Manager workflow — from requirement alignment to prototype generation and PRD delivery.",
+  "type": "module",
+  "scripts": {
+    "preview:prd": "node build-prd-preview.mjs",
+    "build:output-index": "node build-output-index.mjs",
+    "capture:prototypes": "node snapshot-prototypes.mjs"
+  },
+  "keywords": [
+    "pm",
+    "product-manager",
+    "prd",
+    "prototype",
+    "ai-workflow"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "marked": "^17.0.4"
+  },
+  "devDependencies": {
+    "puppeteer-core": "^24.39.1"
+  }
+}

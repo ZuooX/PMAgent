@@ -1,0 +1,15 @@
+# Dependencies
+node_modules/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+
+# Logs & env
+*.log
+npm-debug.log*
+.env
+.env.*
+
+# Optional: local PRD preview build output (uncomment if you prefer not to commit)
+# prd-preview-output/
